@@ -107,7 +107,7 @@ docker compose up -d
 aws --endpoint-url http://localhost:4566 s3 mb s3://my-bucket
 ```
 
-All 55 AWS services are immediately available at `http://localhost:4566`.
+All 56 AWS services are immediately available at `http://localhost:4566`.
 
 [Get started →](getting-started/quick-start.md){ .md-button .md-button--primary }
 [View services →](services/index.md){ .md-button }
