@@ -114,6 +114,9 @@ public class MemoryDbService {
     }
 
     public Cluster getCluster(String name) {
+        if (name == null || name.isBlank()) {
+            throw new AwsException("InvalidParameterValueException", "ClusterName is required.", 400);
+        }
         return clusters.get(name).orElseThrow(() ->
                 new AwsException("ClusterNotFoundFault", "Cluster not found.", 404));
     }

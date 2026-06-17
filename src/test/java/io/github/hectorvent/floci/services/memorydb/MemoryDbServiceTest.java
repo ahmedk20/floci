@@ -127,6 +127,14 @@ class MemoryDbServiceTest {
     }
 
     @Test
+    void nullClusterNameYieldsValidationErrorNotNpe() {
+        AwsException ex = assertThrows(AwsException.class, () -> service.getCluster(null));
+        assertEquals(400, ex.getHttpStatus());
+        assertThrows(AwsException.class, () -> service.deleteCluster(null));
+        assertThrows(AwsException.class, () -> service.updateCluster("  ", "desc"));
+    }
+
+    @Test
     void mockModeSkipsContainerAndReportsStandardPort() {
         when(mdbConfig.mock()).thenReturn(true);
 
