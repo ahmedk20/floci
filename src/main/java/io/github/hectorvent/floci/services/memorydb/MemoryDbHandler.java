@@ -59,7 +59,7 @@ public class MemoryDbHandler {
         } catch (Exception e) {
             LOG.errorv("MemoryDB error processing action {0}: {1}", action, e.getMessage());
             return Response.status(500)
-                    .entity(new AwsErrorResponse("InternalServerError", e.getMessage()))
+                    .entity(new AwsErrorResponse("InternalFailure", e.getMessage()))
                     .build();
         }
     }
