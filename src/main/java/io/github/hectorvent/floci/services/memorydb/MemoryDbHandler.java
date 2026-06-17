@@ -48,7 +48,7 @@ public class MemoryDbHandler {
                 case "TagResource" -> handleTagResource(request);
                 case "UntagResource" -> handleUntagResource(request);
                 default -> Response.status(400)
-                        .entity(new AwsErrorResponse("InvalidParameterValueException",
+                        .entity(new AwsErrorResponse("UnknownOperationException",
                                 "Operation " + action + " is not supported."))
                         .build();
             };
