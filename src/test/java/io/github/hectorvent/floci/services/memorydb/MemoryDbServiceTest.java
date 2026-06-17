@@ -135,6 +135,25 @@ class MemoryDbServiceTest {
     }
 
     @Test
+    void failedProvisioningReleasesProxyPort() {
+        when(mdbConfig.proxyBasePort()).thenReturn(16400);
+        when(mdbConfig.proxyMaxPort()).thenReturn(16400); // exactly one port available
+        when(containerManager.start(anyString(), anyString()))
+                .thenThrow(new RuntimeException("docker unavailable"))
+                .thenReturn(new MemoryDbContainerHandle("cid", "c2", "localhost", 6379));
+
+        Cluster first = new Cluster();
+        first.setName("c1");
+        assertThrows(RuntimeException.class, () -> service.createCluster(first, "us-east-1"));
+
+        // The single port must have been released, so a second create still succeeds
+        Cluster second = new Cluster();
+        second.setName("c2");
+        Cluster created = service.createCluster(second, "us-east-1");
+        assertEquals(ClusterStatus.AVAILABLE, created.getStatus());
+    }
+
+    @Test
     void mockModeSkipsContainerAndReportsStandardPort() {
         when(mdbConfig.mock()).thenReturn(true);
 

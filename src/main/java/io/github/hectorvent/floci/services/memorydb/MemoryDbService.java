@@ -89,21 +89,7 @@ public class MemoryDbService {
             LOG.infov("Creating MemoryDB cluster {0} in mock mode (no container)", name);
             cluster.setClusterEndpoint(new Endpoint(resolveEndpointHost(), REDIS_PORT));
         } else {
-            int proxyPort = allocateProxyPort();
-            String image = config.services().memorydb().defaultImage();
-            LOG.infov("Creating MemoryDB cluster {0} with authMode={1} on proxy port {2}",
-                    name, authMode, String.valueOf(proxyPort));
-
-            MemoryDbContainerHandle handle = containerManager.start(name, image);
-            cluster.setClusterEndpoint(new Endpoint(resolveEndpointHost(), proxyPort));
-            cluster.setProxyPort(proxyPort);
-            cluster.setContainerId(handle.getContainerId());
-            cluster.setContainerHost(handle.getHost());
-            cluster.setContainerPort(handle.getPort());
-
-            proxyManager.startProxy(name, authMode, proxyPort,
-                    handle.getHost(), handle.getPort(),
-                    (username, password) -> validatePassword(name, username, password));
+            startBackend(cluster, authMode);
         }
 
         clusters.put(name, cluster);
@@ -194,6 +180,45 @@ public class MemoryDbService {
                 .filter(c -> resourceArn.equals(c.getArn()))
                 .findFirst()
                 .orElseThrow(() -> new AwsException("ClusterNotFoundFault", "Cluster not found.", 404));
+    }
+
+    private void startBackend(Cluster cluster, AuthMode authMode) {
+        String name = cluster.getName();
+        int proxyPort = allocateProxyPort();
+        String image = config.services().memorydb().defaultImage();
+        LOG.infov("Creating MemoryDB cluster {0} with authMode={1} on proxy port {2}",
+                name, authMode, String.valueOf(proxyPort));
+
+        MemoryDbContainerHandle handle = null;
+        try {
+            handle = containerManager.start(name, image);
+            cluster.setClusterEndpoint(new Endpoint(resolveEndpointHost(), proxyPort));
+            cluster.setProxyPort(proxyPort);
+            cluster.setContainerId(handle.getContainerId());
+            cluster.setContainerHost(handle.getHost());
+            cluster.setContainerPort(handle.getPort());
+
+            proxyManager.startProxy(name, authMode, proxyPort,
+                    handle.getHost(), handle.getPort(),
+                    (username, password) -> validatePassword(name, username, password));
+        } catch (RuntimeException e) {
+            LOG.warnv("MemoryDB cluster {0} provisioning failed, rolling back: {1}", name, e.getMessage());
+            rollbackBackend(name, handle, proxyPort);
+            throw e;
+        }
+    }
+
+    private void rollbackBackend(String name, MemoryDbContainerHandle handle, int proxyPort) {
+        try {
+            proxyManager.stopProxy(name);
+            if (handle != null) {
+                containerManager.stop(handle);
+            }
+        } catch (RuntimeException e) {
+            LOG.warnv("Error rolling back MemoryDB cluster {0}: {1}", name, e.getMessage());
+        } finally {
+            releaseProxyPort(proxyPort);
+        }
     }
 
     private String buildArn(String region, String name) {
