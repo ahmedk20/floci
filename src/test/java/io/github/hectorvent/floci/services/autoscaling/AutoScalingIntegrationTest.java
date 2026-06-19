@@ -332,10 +332,51 @@ class AutoScalingIntegrationTest {
                 .body(not(containsString("scale-out")));
     }
 
+    @Test
+    @Order(17)
+    void putTargetTrackingScalingPolicy() {
+        given()
+                .formParam("Action", "PutScalingPolicy")
+                .formParam("AutoScalingGroupName", "my-asg")
+                .formParam("PolicyName", "cpu-target")
+                .formParam("PolicyType", "TargetTrackingScaling")
+                .formParam("EstimatedInstanceWarmup", "180")
+                .formParam("TargetTrackingConfiguration.PredefinedMetricSpecification.PredefinedMetricType",
+                        "ASGAverageCPUUtilization")
+                .formParam("TargetTrackingConfiguration.TargetValue", "55.5")
+                .header("Authorization", AUTH)
+            .when()
+                .post("/")
+            .then()
+                .statusCode(200)
+                .body(containsString("PolicyARN"));
+    }
+
+    @Test
+    @Order(18)
+    void describeTargetTrackingScalingPolicy() {
+        given()
+                .formParam("Action", "DescribePolicies")
+                .formParam("AutoScalingGroupName", "my-asg")
+                .formParam("PolicyNames.member.1", "cpu-target")
+                .header("Authorization", AUTH)
+            .when()
+                .post("/")
+            .then()
+                .statusCode(200)
+                .body(containsString("<PolicyName>cpu-target</PolicyName>"))
+                .body(containsString("<PolicyType>TargetTrackingScaling</PolicyType>"))
+                .body(containsString("<EstimatedInstanceWarmup>180</EstimatedInstanceWarmup>"))
+                .body(containsString("<TargetTrackingConfiguration>"))
+                .body(containsString("<PredefinedMetricSpecification>"))
+                .body(containsString("<PredefinedMetricType>ASGAverageCPUUtilization</PredefinedMetricType>"))
+                .body(containsString("<TargetValue>55.5</TargetValue>"));
+    }
+
     // ── Metadata ──────────────────────────────────────────────────────────────
 
     @Test
-    @Order(17)
+    @Order(19)
     void describeTerminationPolicyTypes() {
         given()
                 .formParam("Action", "DescribeTerminationPolicyTypes")
@@ -349,7 +390,7 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(18)
+    @Order(20)
     void describeAccountLimits() {
         given()
                 .formParam("Action", "DescribeAccountLimits")
@@ -362,7 +403,7 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(19)
+    @Order(21)
     void describeLifecycleHookTypes() {
         given()
                 .formParam("Action", "DescribeLifecycleHookTypes")
@@ -376,7 +417,7 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(20)
+    @Order(22)
     void describeScalingActivities() {
         given()
                 .formParam("Action", "DescribeScalingActivities")
@@ -390,7 +431,7 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(21)
+    @Order(23)
     void createAutoScalingGroupWithLaunchTemplateId() {
         given()
                 .formParam("Action", "CreateAutoScalingGroup")
@@ -425,7 +466,7 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(22)
+    @Order(24)
     void describeAutoScalingGroupWithLaunchTemplateId() {
         given()
                 .formParam("Action", "DescribeAutoScalingGroups")
@@ -466,7 +507,7 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(23)
+    @Order(25)
     void startInstanceRefresh() {
         instanceRefreshId = given()
                 .formParam("Action", "StartInstanceRefresh")
@@ -495,7 +536,7 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(24)
+    @Order(26)
     void describeInstanceRefreshes() {
         String body = given()
                 .formParam("Action", "DescribeInstanceRefreshes")
@@ -537,7 +578,7 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(25)
+    @Order(27)
     void describeInstanceRefreshesPaginatesNewestFirst() {
         pagedInstanceRefreshId = given()
                 .formParam("Action", "StartInstanceRefresh")
@@ -581,7 +622,124 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(26)
+    @Order(28)
+    void createAutoScalingGroupWithMixedInstancesPolicy() {
+        given()
+                .formParam("Action", "CreateAutoScalingGroup")
+                .formParam("AutoScalingGroupName", "my-mixed-asg")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId",
+                        "lt-mixed")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.Version", "3")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.Overrides.member.1.InstanceType", "t4g.medium")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.Overrides.member.2.InstanceType", "m7g.large")
+                .formParam("MixedInstancesPolicy.InstancesDistribution.OnDemandBaseCapacity", "1")
+                .formParam("MixedInstancesPolicy.InstancesDistribution.OnDemandPercentageAboveBaseCapacity", "25")
+                .formParam("MixedInstancesPolicy.InstancesDistribution.SpotAllocationStrategy", "capacity-optimized")
+                .formParam("MinSize", "0")
+                .formParam("MaxSize", "4")
+                .formParam("DesiredCapacity", "1")
+                .formParam("AvailabilityZones.member.1", "us-east-1a")
+                .header("Authorization", AUTH)
+            .when()
+                .post("/")
+            .then()
+                .statusCode(200)
+                .body(containsString("CreateAutoScalingGroupResponse"));
+
+        given()
+                .formParam("Action", "DescribeAutoScalingGroups")
+                .formParam("AutoScalingGroupNames.member.1", "my-mixed-asg")
+                .header("Authorization", AUTH)
+            .when()
+                .post("/")
+            .then()
+                .statusCode(200)
+                .body(containsString("<MixedInstancesPolicy>"))
+                .body(containsString("<LaunchTemplateSpecification>"))
+                .body(containsString("<LaunchTemplateId>lt-mixed</LaunchTemplateId>"))
+                .body(containsString("<Version>3</Version>"))
+                .body(containsString("<InstanceType>t4g.medium</InstanceType>"))
+                .body(containsString("<InstanceType>m7g.large</InstanceType>"))
+                .body(containsString("<OnDemandBaseCapacity>1</OnDemandBaseCapacity>"))
+                .body(containsString("<OnDemandPercentageAboveBaseCapacity>25</OnDemandPercentageAboveBaseCapacity>"))
+                .body(containsString("<SpotAllocationStrategy>capacity-optimized</SpotAllocationStrategy>"));
+    }
+
+    @Test
+    @Order(29)
+    void updateAutoScalingGroupFromLaunchTemplateToMixedInstancesPolicy() {
+        given()
+                .formParam("Action", "UpdateAutoScalingGroup")
+                .formParam("AutoScalingGroupName", "my-lt-asg")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId",
+                        "lt-replacement")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.Version", "4")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.Overrides.member.1.InstanceType", "c7g.large")
+                .formParam("MixedInstancesPolicy.InstancesDistribution.OnDemandBaseCapacity", "0")
+                .formParam("MixedInstancesPolicy.InstancesDistribution.OnDemandPercentageAboveBaseCapacity", "10")
+                .formParam("MixedInstancesPolicy.InstancesDistribution.SpotAllocationStrategy", "lowest-price")
+                .header("Authorization", AUTH)
+            .when()
+                .post("/")
+            .then()
+                .statusCode(200)
+                .body(containsString("UpdateAutoScalingGroupResponse"));
+
+        given()
+                .formParam("Action", "DescribeAutoScalingGroups")
+                .formParam("AutoScalingGroupNames.member.1", "my-lt-asg")
+                .header("Authorization", AUTH)
+            .when()
+                .post("/")
+            .then()
+                .statusCode(200)
+                .body(containsString("<MixedInstancesPolicy>"))
+                .body(containsString("<LaunchTemplateId>lt-replacement</LaunchTemplateId>"))
+                .body(containsString("<Version>4</Version>"))
+                .body(containsString("<InstanceType>c7g.large</InstanceType>"))
+                .body(containsString("<OnDemandBaseCapacity>0</OnDemandBaseCapacity>"))
+                .body(containsString("<OnDemandPercentageAboveBaseCapacity>10</OnDemandPercentageAboveBaseCapacity>"))
+                .body(containsString("<SpotAllocationStrategy>lowest-price</SpotAllocationStrategy>"));
+    }
+
+    @Test
+    @Order(30)
+    void updateMixedInstancesPolicyOverridesAndDistribution() {
+        given()
+                .formParam("Action", "UpdateAutoScalingGroup")
+                .formParam("AutoScalingGroupName", "my-mixed-asg")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId",
+                        "lt-mixed")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.Version", "5")
+                .formParam("MixedInstancesPolicy.LaunchTemplate.Overrides.member.1.InstanceType", "r7g.large")
+                .formParam("MixedInstancesPolicy.InstancesDistribution.OnDemandBaseCapacity", "2")
+                .formParam("MixedInstancesPolicy.InstancesDistribution.OnDemandPercentageAboveBaseCapacity", "50")
+                .formParam("MixedInstancesPolicy.InstancesDistribution.SpotAllocationStrategy", "price-capacity-optimized")
+                .header("Authorization", AUTH)
+            .when()
+                .post("/")
+            .then()
+                .statusCode(200)
+                .body(containsString("UpdateAutoScalingGroupResponse"));
+
+        given()
+                .formParam("Action", "DescribeAutoScalingGroups")
+                .formParam("AutoScalingGroupNames.member.1", "my-mixed-asg")
+                .header("Authorization", AUTH)
+            .when()
+                .post("/")
+            .then()
+                .statusCode(200)
+                .body(containsString("<Version>5</Version>"))
+                .body(containsString("<InstanceType>r7g.large</InstanceType>"))
+                .body(not(containsString("<InstanceType>t4g.medium</InstanceType>")))
+                .body(containsString("<OnDemandBaseCapacity>2</OnDemandBaseCapacity>"))
+                .body(containsString("<OnDemandPercentageAboveBaseCapacity>50</OnDemandPercentageAboveBaseCapacity>"))
+                .body(containsString("<SpotAllocationStrategy>price-capacity-optimized</SpotAllocationStrategy>"));
+    }
+
+    @Test
+    @Order(31)
     void deleteLaunchTemplateAutoScalingGroup() {
         given()
                 .formParam("Action", "DeleteAutoScalingGroup")
@@ -598,7 +756,7 @@ class AutoScalingIntegrationTest {
     // ── Cleanup ───────────────────────────────────────────────────────────────
 
     @Test
-    @Order(27)
+    @Order(32)
     void deleteAutoScalingGroup() {
         given()
                 .formParam("Action", "DeleteAutoScalingGroup")
@@ -613,7 +771,22 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(28)
+    @Order(33)
+    void deleteMixedInstancesAutoScalingGroup() {
+        given()
+                .formParam("Action", "DeleteAutoScalingGroup")
+                .formParam("AutoScalingGroupName", "my-mixed-asg")
+                .formParam("ForceDelete", "true")
+                .header("Authorization", AUTH)
+            .when()
+                .post("/")
+            .then()
+                .statusCode(200)
+                .body(containsString("DeleteAutoScalingGroupResponse"));
+    }
+
+    @Test
+    @Order(34)
     void deleteLaunchConfiguration() {
         given()
                 .formParam("Action", "DeleteLaunchConfiguration")
@@ -627,7 +800,7 @@ class AutoScalingIntegrationTest {
     }
 
     @Test
-    @Order(29)
+    @Order(35)
     void describeAutoScalingGroupsEmpty() {
         given()
                 .formParam("Action", "DescribeAutoScalingGroups")

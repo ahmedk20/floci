@@ -156,6 +156,7 @@ public class AutoScalingQueryHandler {
                 p.getFirst("LaunchTemplate.LaunchTemplateId"),
                 p.getFirst("LaunchTemplate.LaunchTemplateName"),
                 p.getFirst("LaunchTemplate.Version"),
+                parseMixedInstancesPolicy(p),
                 intParam(p, "MinSize", 0),
                 intParam(p, "MaxSize", 0),
                 intParam(p, "DesiredCapacity", intParam(p, "MinSize", 0)),
@@ -184,6 +185,7 @@ public class AutoScalingQueryHandler {
                 p.getFirst("LaunchTemplate.LaunchTemplateId"),
                 p.getFirst("LaunchTemplate.LaunchTemplateName"),
                 p.getFirst("LaunchTemplate.Version"),
+                parseMixedInstancesPolicy(p),
                 p.getFirst("MinSize") != null ? Integer.parseInt(p.getFirst("MinSize")) : null,
                 p.getFirst("MaxSize") != null ? Integer.parseInt(p.getFirst("MaxSize")) : null,
                 p.getFirst("DesiredCapacity") != null ? Integer.parseInt(p.getFirst("DesiredCapacity")) : null,
@@ -255,6 +257,7 @@ public class AutoScalingQueryHandler {
             }
             xml.end("LaunchTemplate");
         }
+        appendMixedInstancesPolicyXml(xml, asg.getMixedInstancesPolicy());
 
         xml.start("AvailabilityZones");
         for (String az : asg.getAvailabilityZones()) { xml.elem("member", az); }
@@ -474,6 +477,64 @@ public class AutoScalingQueryHandler {
         xml.end("LaunchTemplate");
     }
 
+    private static void appendMixedInstancesPolicyXml(XmlBuilder xml, MixedInstancesPolicy policy) {
+        if (policy == null) {
+            return;
+        }
+        xml.start("MixedInstancesPolicy");
+        MixedInstancesPolicy.LaunchTemplate launchTemplate = policy.getLaunchTemplate();
+        if (launchTemplate != null) {
+            xml.start("LaunchTemplate");
+            appendMixedLaunchTemplateSpecificationXml(xml, launchTemplate.getLaunchTemplateSpecification());
+            if (!launchTemplate.getOverrides().isEmpty()) {
+                xml.start("Overrides");
+                for (MixedInstancesPolicy.LaunchTemplateOverride override : launchTemplate.getOverrides()) {
+                    xml.start("member");
+                    if (override.getInstanceType() != null) {
+                        xml.elem("InstanceType", override.getInstanceType());
+                    }
+                    xml.end("member");
+                }
+                xml.end("Overrides");
+            }
+            xml.end("LaunchTemplate");
+        }
+        MixedInstancesPolicy.InstancesDistribution distribution = policy.getInstancesDistribution();
+        if (distribution != null) {
+            xml.start("InstancesDistribution");
+            if (distribution.getOnDemandBaseCapacity() != null) {
+                xml.elem("OnDemandBaseCapacity", String.valueOf(distribution.getOnDemandBaseCapacity()));
+            }
+            if (distribution.getOnDemandPercentageAboveBaseCapacity() != null) {
+                xml.elem("OnDemandPercentageAboveBaseCapacity",
+                        String.valueOf(distribution.getOnDemandPercentageAboveBaseCapacity()));
+            }
+            if (distribution.getSpotAllocationStrategy() != null) {
+                xml.elem("SpotAllocationStrategy", distribution.getSpotAllocationStrategy());
+            }
+            xml.end("InstancesDistribution");
+        }
+        xml.end("MixedInstancesPolicy");
+    }
+
+    private static void appendMixedLaunchTemplateSpecificationXml(
+            XmlBuilder xml, MixedInstancesPolicy.LaunchTemplateSpecification specification) {
+        if (specification == null) {
+            return;
+        }
+        xml.start("LaunchTemplateSpecification");
+        if (specification.getLaunchTemplateId() != null) {
+            xml.elem("LaunchTemplateId", specification.getLaunchTemplateId());
+        }
+        if (specification.getLaunchTemplateName() != null) {
+            xml.elem("LaunchTemplateName", specification.getLaunchTemplateName());
+        }
+        if (specification.getVersion() != null) {
+            xml.elem("Version", specification.getVersion());
+        }
+        xml.end("LaunchTemplateSpecification");
+    }
+
     private Response handleAttachInstances(MultivaluedMap<String, String> p, String region) {
         service.attachInstances(region, p.getFirst("AutoScalingGroupName"), memberList(p, "InstanceIds"));
         return ok(new XmlBuilder()
@@ -678,7 +739,9 @@ public class AutoScalingQueryHandler {
                 p.getFirst("PolicyType"),
                 p.getFirst("AdjustmentType"),
                 intParam(p, "ScalingAdjustment", 0),
-                intParam(p, "Cooldown", 300));
+                intParam(p, "Cooldown", 300),
+                nullableIntParam(p, "EstimatedInstanceWarmup"),
+                parseTargetTrackingConfiguration(p));
         return ok(new XmlBuilder()
                 .start("PutScalingPolicyResponse", NS)
                   .start("PutScalingPolicyResult")
@@ -713,6 +776,10 @@ public class AutoScalingQueryHandler {
                .elem("ScalingAdjustment", String.valueOf(policy.getScalingAdjustment()))
                .elem("Cooldown", String.valueOf(policy.getCooldown()));
             if (policy.getAdjustmentType() != null) { xml.elem("AdjustmentType", policy.getAdjustmentType()); }
+            if (policy.getEstimatedInstanceWarmup() != null) {
+                xml.elem("EstimatedInstanceWarmup", String.valueOf(policy.getEstimatedInstanceWarmup()));
+            }
+            appendTargetTrackingConfigurationXml(xml, policy.getTargetTrackingConfiguration());
             xml.end("member");
         }
         xml.end("ScalingPolicies")
@@ -720,6 +787,44 @@ public class AutoScalingQueryHandler {
            .raw(AwsQueryResponse.responseMetadata())
            .end("DescribePoliciesResponse");
         return ok(xml.build());
+    }
+
+    private static ScalingPolicy.TargetTrackingConfiguration parseTargetTrackingConfiguration(MultivaluedMap<String, String> p) {
+        String predefinedMetricType = p.getFirst("TargetTrackingConfiguration.PredefinedMetricSpecification.PredefinedMetricType");
+        Double targetValue = nullableDoubleParam(p, "TargetTrackingConfiguration.TargetValue");
+        if (predefinedMetricType == null && targetValue == null) {
+            return null;
+        }
+        ScalingPolicy.TargetTrackingConfiguration configuration = new ScalingPolicy.TargetTrackingConfiguration();
+        if (predefinedMetricType != null) {
+            ScalingPolicy.PredefinedMetricSpecification specification =
+                    new ScalingPolicy.PredefinedMetricSpecification();
+            specification.setPredefinedMetricType(predefinedMetricType);
+            configuration.setPredefinedMetricSpecification(specification);
+        }
+        configuration.setTargetValue(targetValue);
+        return configuration;
+    }
+
+    private static void appendTargetTrackingConfigurationXml(
+            XmlBuilder xml, ScalingPolicy.TargetTrackingConfiguration configuration) {
+        if (configuration == null) {
+            return;
+        }
+        xml.start("TargetTrackingConfiguration");
+        ScalingPolicy.PredefinedMetricSpecification predefinedMetric =
+                configuration.getPredefinedMetricSpecification();
+        if (predefinedMetric != null) {
+            xml.start("PredefinedMetricSpecification");
+            if (predefinedMetric.getPredefinedMetricType() != null) {
+                xml.elem("PredefinedMetricType", predefinedMetric.getPredefinedMetricType());
+            }
+            xml.end("PredefinedMetricSpecification");
+        }
+        if (configuration.getTargetValue() != null) {
+            xml.elem("TargetValue", String.valueOf(configuration.getTargetValue()));
+        }
+        xml.end("TargetTrackingConfiguration");
     }
 
     // ── Activities ────────────────────────────────────────────────────────────
@@ -865,6 +970,71 @@ public class AutoScalingQueryHandler {
                 .toList();
     }
 
+    private MixedInstancesPolicy parseMixedInstancesPolicy(MultivaluedMap<String, String> p) {
+        if (!hasAnyPrefix(p, "MixedInstancesPolicy.")) {
+            return null;
+        }
+        MixedInstancesPolicy policy = new MixedInstancesPolicy();
+
+        MixedInstancesPolicy.LaunchTemplate launchTemplate = new MixedInstancesPolicy.LaunchTemplate();
+        MixedInstancesPolicy.LaunchTemplateSpecification specification =
+                new MixedInstancesPolicy.LaunchTemplateSpecification();
+        specification.setLaunchTemplateId(p.getFirst(
+                "MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId"));
+        specification.setLaunchTemplateName(p.getFirst(
+                "MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateName"));
+        specification.setVersion(p.getFirst(
+                "MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.Version"));
+        if (specification.getLaunchTemplateId() != null
+                || specification.getLaunchTemplateName() != null
+                || specification.getVersion() != null) {
+            launchTemplate.setLaunchTemplateSpecification(specification);
+        }
+        launchTemplate.setOverrides(parseMixedLaunchTemplateOverrides(p));
+        if (launchTemplate.getLaunchTemplateSpecification() != null || !launchTemplate.getOverrides().isEmpty()) {
+            policy.setLaunchTemplate(launchTemplate);
+        }
+
+        MixedInstancesPolicy.InstancesDistribution distribution =
+                new MixedInstancesPolicy.InstancesDistribution();
+        distribution.setOnDemandBaseCapacity(nullableIntParam(
+                p, "MixedInstancesPolicy.InstancesDistribution.OnDemandBaseCapacity"));
+        distribution.setOnDemandPercentageAboveBaseCapacity(nullableIntParam(
+                p, "MixedInstancesPolicy.InstancesDistribution.OnDemandPercentageAboveBaseCapacity"));
+        distribution.setSpotAllocationStrategy(
+                p.getFirst("MixedInstancesPolicy.InstancesDistribution.SpotAllocationStrategy"));
+        if (distribution.getOnDemandBaseCapacity() != null
+                || distribution.getOnDemandPercentageAboveBaseCapacity() != null
+                || distribution.getSpotAllocationStrategy() != null) {
+            policy.setInstancesDistribution(distribution);
+        }
+        return policy;
+    }
+
+    private static boolean hasAnyPrefix(MultivaluedMap<String, String> p, String prefix) {
+        for (String key : p.keySet()) {
+            if (key.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<MixedInstancesPolicy.LaunchTemplateOverride> parseMixedLaunchTemplateOverrides(
+            MultivaluedMap<String, String> p) {
+        List<MixedInstancesPolicy.LaunchTemplateOverride> result = new ArrayList<>();
+        for (int i = 1; ; i++) {
+            String instanceType = p.getFirst("MixedInstancesPolicy.LaunchTemplate.Overrides.member."
+                    + i + ".InstanceType");
+            if (instanceType == null) { break; }
+            MixedInstancesPolicy.LaunchTemplateOverride override =
+                    new MixedInstancesPolicy.LaunchTemplateOverride();
+            override.setInstanceType(instanceType);
+            result.add(override);
+        }
+        return result;
+    }
+
     private Map<String, String> parseTags(MultivaluedMap<String, String> p) {
         Map<String, String> result = new LinkedHashMap<>();
         for (int i = 1; ; i++) {
@@ -932,6 +1102,12 @@ public class AutoScalingQueryHandler {
         String val = p.getFirst(key);
         if (val == null || val.isBlank()) { return null; }
         try { return Integer.parseInt(val); } catch (NumberFormatException e) { return null; }
+    }
+
+    private static Double nullableDoubleParam(MultivaluedMap<String, String> p, String key) {
+        String val = p.getFirst(key);
+        if (val == null || val.isBlank()) { return null; }
+        try { return Double.parseDouble(val); } catch (NumberFormatException e) { return null; }
     }
 
     private Boolean nullableBoolParam(MultivaluedMap<String, String> p, String key) {
