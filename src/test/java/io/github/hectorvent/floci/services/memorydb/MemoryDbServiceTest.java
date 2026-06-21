@@ -219,13 +219,26 @@ class MemoryDbServiceTest {
     }
 
     @Test
-    void createUserAcceptsNoPasswordType() {
+    void createUserRejectsNoPasswordType() {
+        // "no-password" is a valid wire enum value but is output-only: AWS rejects it on
+        // CreateUser ("all newly-created users require a password" / IAM).
         User userSpec = new User();
         userSpec.setName("npr");
         userSpec.setAuthMode(AuthMode.NO_PASSWORD);
         userSpec.setAccessString("on ~* +@all");
-        User created = service.createUser(userSpec, "us-east-1");
-        assertEquals(AuthMode.NO_PASSWORD, created.getAuthMode());
+        AwsException ex = assertThrows(AwsException.class, () -> service.createUser(userSpec, "us-east-1"));
+        assertEquals("InvalidParameterValueException", ex.jsonType());
+    }
+
+    @Test
+    void createUserRejectsInvalidUserName() {
+        User userSpec = new User();
+        userSpec.setName("1-bad-start"); // must start with a letter
+        userSpec.setAuthMode(AuthMode.PASSWORD);
+        userSpec.setPasswords(List.of("p"));
+        userSpec.setAccessString("on ~* +@all");
+        AwsException ex = assertThrows(AwsException.class, () -> service.createUser(userSpec, "us-east-1"));
+        assertEquals("InvalidParameterValueException", ex.jsonType());
     }
 
     @Test

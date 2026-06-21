@@ -51,6 +51,11 @@ public class MemoryDbService {
     private static final String ACTIVE = "active";
     private static final int REDIS_PORT = 6379;
 
+    // Per the MemoryDB API: a user name must start with a letter and contain only
+    // letters, digits and hyphens.
+    private static final java.util.regex.Pattern USER_NAME_PATTERN =
+            java.util.regex.Pattern.compile("[a-zA-Z][a-zA-Z0-9\\-]*");
+
     private final StorageBackend<String, Cluster> clusters;
     private final StorageBackend<String, User> users;
     private final StorageBackend<String, Acl> acls;
@@ -179,6 +184,10 @@ public class MemoryDbService {
         if (name == null || name.isBlank()) {
             throw new AwsException("InvalidParameterValueException", "UserName is required.", 400);
         }
+        if (!USER_NAME_PATTERN.matcher(name).matches()) {
+            throw new AwsException("InvalidParameterValueException",
+                    "UserName must start with a letter and contain only letters, digits and hyphens.", 400);
+        }
         if (DEFAULT_USER.equals(name) || users.get(name).isPresent()) {
             throw new AwsException("UserAlreadyExistsFault",
                     "User with specified name already exists.", 400);
@@ -186,6 +195,13 @@ public class MemoryDbService {
         if (spec.getAuthMode() == null) {
             throw new AwsException("InvalidParameterValueException",
                     "AuthenticationMode is required.", 400);
+        }
+        // AuthenticationMode.Type accepts "no-password" in the wire enum, but the service
+        // rejects it on create: per the API, all newly-created users must authenticate with
+        // a password or IAM. "no-password" is only ever the built-in default user.
+        if (spec.getAuthMode() == AuthMode.NO_PASSWORD) {
+            throw new AwsException("InvalidParameterValueException",
+                    "AuthenticationMode Type must be 'password' or 'iam' for a new user.", 400);
         }
         if (spec.getAuthMode() == AuthMode.PASSWORD
                 && (spec.getPasswords() == null || spec.getPasswords().isEmpty())) {
