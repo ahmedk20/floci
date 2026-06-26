@@ -458,6 +458,34 @@ public interface EmulatorConfig {
         BatchServiceConfig batch();
         UiServiceConfig ui();
         S3VectorsServiceConfig s3vectors();
+        IotServiceConfig iot();
+        IotDataServiceConfig iotdata();
+    }
+
+    interface IotServiceConfig {
+        @WithDefault("true")
+        boolean enabled();
+
+        MqttConfig mqtt();
+    }
+
+    interface MqttConfig {
+        @WithDefault("true")
+        boolean enabled();
+
+        @WithDefault("false")
+        boolean autoStart();
+
+        @WithDefault("0.0.0.0")
+        String host();
+
+        @WithDefault("1883")
+        int port();
+    }
+
+    interface IotDataServiceConfig {
+        @WithDefault("true")
+        boolean enabled();
     }
 
     interface CloudTrailServiceConfig {
