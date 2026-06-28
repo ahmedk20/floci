@@ -106,6 +106,9 @@ floci:
       enabled: true
       mock: true
       default-image: "redpandadata/redpanda:latest"
+    amazonmq:
+      enabled: true
+      mock: true
     elasticache:
       enabled: true
       proxy-base-port: 6379

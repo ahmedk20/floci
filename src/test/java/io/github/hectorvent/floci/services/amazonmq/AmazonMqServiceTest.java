@@ -5,6 +5,7 @@ import io.github.hectorvent.floci.core.common.AwsException;
 import io.github.hectorvent.floci.core.common.RegionResolver;
 import io.github.hectorvent.floci.core.storage.InMemoryStorage;
 import io.github.hectorvent.floci.core.storage.StorageFactory;
+import io.github.hectorvent.floci.services.amazonmq.container.RabbitMqManager;
 import io.github.hectorvent.floci.services.amazonmq.model.Broker;
 import io.github.hectorvent.floci.services.amazonmq.model.BrokerState;
 import io.github.hectorvent.floci.services.amazonmq.model.MqUser;
@@ -28,10 +29,16 @@ class AmazonMqServiceTest {
                 .thenReturn(new InMemoryStorage<>());
 
         EmulatorConfig config = Mockito.mock(EmulatorConfig.class);
+        var servicesConfig = Mockito.mock(EmulatorConfig.ServicesConfig.class);
+        var mqConfig = Mockito.mock(EmulatorConfig.AmazonMqServiceConfig.class);
+        when(config.services()).thenReturn(servicesConfig);
+        when(servicesConfig.amazonmq()).thenReturn(mqConfig);
+        when(mqConfig.mock()).thenReturn(true);
         when(config.defaultRegion()).thenReturn("us-east-1");
 
         RegionResolver regionResolver = new RegionResolver("us-east-1", "000000000000");
-        service = new AmazonMqService(storageFactory, config, regionResolver);
+        RabbitMqManager rabbitMqManager = Mockito.mock(RabbitMqManager.class);
+        service = new AmazonMqService(storageFactory, config, regionResolver, rabbitMqManager);
     }
 
     private CreateBrokerParams rabbitParams(String name) {
@@ -111,5 +118,36 @@ class AmazonMqServiceTest {
         service.createUser(id, new MqUser("alice", "p1", false, null));
         assertThrows(AwsException.class,
                 () -> service.createUser(id, new MqUser("alice", "p2", false, null)));
+    }
+
+    @Test
+    void createBrokerMarksFailedWhenProvisioningThrows() {
+        // Real (non-mock) mode with a container manager that fails to start.
+        StorageFactory storageFactory = Mockito.mock(StorageFactory.class);
+        when(storageFactory.create(Mockito.anyString(), Mockito.anyString(), Mockito.any()))
+                .thenReturn(new InMemoryStorage<>());
+
+        EmulatorConfig config = Mockito.mock(EmulatorConfig.class);
+        var servicesConfig = Mockito.mock(EmulatorConfig.ServicesConfig.class);
+        var mqConfig = Mockito.mock(EmulatorConfig.AmazonMqServiceConfig.class);
+        when(config.services()).thenReturn(servicesConfig);
+        when(servicesConfig.amazonmq()).thenReturn(mqConfig);
+        when(mqConfig.mock()).thenReturn(false);
+        when(config.defaultRegion()).thenReturn("us-east-1");
+
+        RegionResolver regionResolver = new RegionResolver("us-east-1", "000000000000");
+        RabbitMqManager failingManager = Mockito.mock(RabbitMqManager.class);
+        Mockito.doThrow(new RuntimeException("docker unavailable"))
+                .when(failingManager).startContainer(Mockito.any());
+        AmazonMqService realModeService =
+                new AmazonMqService(storageFactory, config, regionResolver, failingManager);
+
+        assertThrows(AwsException.class,
+                () -> realModeService.createBroker(rabbitParams("orders")));
+
+        // The failed broker is persisted as CREATION_FAILED, not left dangling.
+        List<Broker> brokers = realModeService.listBrokers();
+        assertEquals(1, brokers.size());
+        assertEquals(BrokerState.CREATION_FAILED, brokers.get(0).getBrokerState());
     }
 }

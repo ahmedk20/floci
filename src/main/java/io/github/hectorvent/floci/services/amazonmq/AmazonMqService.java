@@ -5,12 +5,16 @@ import io.github.hectorvent.floci.config.EmulatorConfig;
 import io.github.hectorvent.floci.core.common.AwsArnUtils;
 import io.github.hectorvent.floci.core.common.AwsException;
 import io.github.hectorvent.floci.core.common.RegionResolver;
+import io.github.hectorvent.floci.core.storage.AccountAwareStorageBackend;
 import io.github.hectorvent.floci.core.storage.StorageBackend;
 import io.github.hectorvent.floci.core.storage.StorageFactory;
+import io.github.hectorvent.floci.services.amazonmq.container.RabbitMqManager;
 import io.github.hectorvent.floci.services.amazonmq.model.Broker;
 import io.github.hectorvent.floci.services.amazonmq.model.BrokerInstance;
 import io.github.hectorvent.floci.services.amazonmq.model.BrokerState;
 import io.github.hectorvent.floci.services.amazonmq.model.MqUser;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -21,6 +25,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
 public class AmazonMqService {
@@ -33,14 +40,32 @@ public class AmazonMqService {
     private final StorageBackend<String, Broker> storage;
     private final EmulatorConfig config;
     private final RegionResolver regionResolver;
+    private final RabbitMqManager rabbitMqManager;
+    private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor();
 
     @Inject
     public AmazonMqService(StorageFactory storageFactory, EmulatorConfig config,
-                           RegionResolver regionResolver) {
+                           RegionResolver regionResolver, RabbitMqManager rabbitMqManager) {
         this.storage = storageFactory.create("amazonmq", "amazonmq-brokers.json",
                 new TypeReference<Map<String, Broker>>() {});
         this.config = config;
         this.regionResolver = regionResolver;
+        this.rabbitMqManager = rabbitMqManager;
+    }
+
+    @PostConstruct
+    public void init() {
+        startReadinessPoller();
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        poller.shutdown();
+        if (!config.services().amazonmq().mock()) {
+            for (Broker broker : allBrokers()) {
+                rabbitMqManager.stopContainer(broker);
+            }
+        }
     }
 
     public Broker createBroker(CreateBrokerParams params) {
@@ -82,11 +107,22 @@ public class AmazonMqService {
             broker.setTags(new HashMap<>(params.tags()));
         }
 
-        // commit 1: no backing container yet. Bring the broker up immediately
-        // with synthetic local endpoints; commit 2 replaces this with a real
-        // RabbitMQ container started behind a readiness poller.
-        applyLocalEndpoints(broker);
-        broker.setBrokerState(BrokerState.RUNNING);
+        if (config.services().amazonmq().mock()) {
+            // No backing container: come up immediately with synthetic endpoints.
+            applyLocalEndpoints(broker);
+            broker.setBrokerState(BrokerState.RUNNING);
+        } else {
+            try {
+                // Start the container; the broker stays CREATION_IN_PROGRESS until
+                // the readiness poller observes the management API answering.
+                rabbitMqManager.startContainer(broker);
+            } catch (RuntimeException e) {
+                broker.setBrokerState(BrokerState.CREATION_FAILED);
+                storage.put(brokerId, broker);
+                throw new AwsException("InternalServerErrorException",
+                        "Failed to provision broker " + name + ": " + e.getMessage(), 500);
+            }
+        }
 
         storage.put(brokerId, broker);
         LOG.infov("Created Amazon MQ broker {0} ({1})", name, brokerId);
@@ -106,6 +142,10 @@ public class AmazonMqService {
     public void deleteBroker(String brokerId) {
         Broker broker = describeBroker(brokerId);
         broker.setBrokerState(BrokerState.DELETION_IN_PROGRESS);
+        if (!config.services().amazonmq().mock()) {
+            rabbitMqManager.stopContainer(broker);
+            rabbitMqManager.removeBrokerStorage(broker);
+        }
         storage.delete(brokerId);
         LOG.infov("Deleted Amazon MQ broker {0}", brokerId);
     }
@@ -113,7 +153,7 @@ public class AmazonMqService {
     public Broker rebootBroker(String brokerId) {
         Broker broker = describeBroker(brokerId);
         // Synchronous in mock mode: a real reboot would cycle the container and
-        // flip back to RUNNING via the readiness poller (commit 2).
+        // flip back to RUNNING via the readiness poller.
         broker.setBrokerState(BrokerState.RUNNING);
         storage.put(brokerId, broker);
         return broker;
@@ -125,6 +165,41 @@ public class AmazonMqService {
                 List.of("amqp://localhost:5672"),
                 "localhost");
         broker.setBrokerInstances(new ArrayList<>(List.of(instance)));
+    }
+
+    private void startReadinessPoller() {
+        poller.scheduleAtFixedRate(() -> {
+            try {
+                if (config.services().amazonmq().mock()) {
+                    return;
+                }
+                for (Broker broker : allBrokers()) {
+                    if (broker.getBrokerState() == BrokerState.CREATION_IN_PROGRESS
+                            && rabbitMqManager.isReady(broker)) {
+                        LOG.infov("Amazon MQ broker {0} is now RUNNING", broker.getBrokerName());
+                        broker.setBrokerState(BrokerState.RUNNING);
+                        putBroker(broker);
+                    }
+                }
+            } catch (Exception e) {
+                LOG.error("Error in Amazon MQ readiness poller", e);
+            }
+        }, 1, 2, TimeUnit.SECONDS);
+    }
+
+    private List<Broker> allBrokers() {
+        if (storage instanceof AccountAwareStorageBackend<Broker> aware) {
+            return aware.scanAllAccounts();
+        }
+        return storage.scan(k -> true);
+    }
+
+    private void putBroker(Broker broker) {
+        if (broker.getAccountId() != null && storage instanceof AccountAwareStorageBackend<Broker> aware) {
+            aware.putForAccount(broker.getAccountId(), broker.getBrokerId(), broker);
+        } else {
+            storage.put(broker.getBrokerId(), broker);
+        }
     }
 
     // --- Users (in-memory; projected into the real broker in commit 3) ---

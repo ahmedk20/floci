@@ -209,6 +209,8 @@ floci:
       kafka-host-port-max: 9399
     amazonmq:
       enabled: true
+      mock: false
+      default-image: "rabbitmq:3-management"
     elasticache:
       enabled: true
       proxy-base-port: 6379

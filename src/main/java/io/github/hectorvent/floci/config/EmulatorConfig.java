@@ -655,6 +655,12 @@ public interface EmulatorConfig {
     interface AmazonMqServiceConfig {
         @WithDefault("true")
         boolean enabled();
+
+        @WithDefault("false")
+        boolean mock();
+
+        @WithDefault("rabbitmq:3-management")
+        String defaultImage();
     }
 
     interface ElastiCacheServiceConfig {
