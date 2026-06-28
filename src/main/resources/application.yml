@@ -207,6 +207,8 @@ floci:
       default-image: "redpandadata/redpanda:latest"
       kafka-host-port-base: 9300
       kafka-host-port-max: 9399
+    amazonmq:
+      enabled: true
     elasticache:
       enabled: true
       proxy-base-port: 6379

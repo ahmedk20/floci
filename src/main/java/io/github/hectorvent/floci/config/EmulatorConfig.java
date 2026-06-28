@@ -408,6 +408,7 @@ public interface EmulatorConfig {
         ApiGatewayServiceConfig apigateway();
         IamServiceConfig iam();
         MskServiceConfig msk();
+        AmazonMqServiceConfig amazonmq();
         ElastiCacheServiceConfig elasticache();
         MemoryDbServiceConfig memorydb();
         RdsServiceConfig rds();
@@ -649,6 +650,11 @@ public interface EmulatorConfig {
 
         @WithDefault("9399")
         int kafkaHostPortMax();
+    }
+
+    interface AmazonMqServiceConfig {
+        @WithDefault("true")
+        boolean enabled();
     }
 
     interface ElastiCacheServiceConfig {
