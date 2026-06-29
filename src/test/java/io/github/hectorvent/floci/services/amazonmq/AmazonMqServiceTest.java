@@ -43,7 +43,8 @@ class AmazonMqServiceTest {
 
     private CreateBrokerParams rabbitParams(String name) {
         return new CreateBrokerParams(name, "RABBITMQ", null, "SINGLE_INSTANCE",
-                "mq.t3.micro", false, false, null, null);
+                "mq.t3.micro", false, false,
+                List.of(new MqUser("admin", "AdminPass123", true, null)), null);
     }
 
     @Test
@@ -99,25 +100,40 @@ class AmazonMqServiceTest {
     }
 
     @Test
-    void userRoundTrip() {
+    void userApiRejectedForRabbitMq() {
+        // The standalone User API applies only to ActiveMQ; AWS rejects it for
+        // RabbitMQ brokers, and every broker we host is RabbitMQ.
         Broker broker = service.createBroker(rabbitParams("orders"));
         String id = broker.getBrokerId();
 
-        service.createUser(id, new MqUser("alice", "s3cret-pass", false, List.of("admin")));
-        assertEquals(1, service.listUsers(id).size());
-        assertEquals("alice", service.describeUser(id, "alice").getUsername());
-
-        service.deleteUser(id, "alice");
-        assertTrue(service.listUsers(id).isEmpty());
+        assertThrows(AwsException.class,
+                () -> service.createUser(id, new MqUser("alice", "AnotherPass99", false, null)));
+        assertThrows(AwsException.class, () -> service.listUsers(id));
+        assertThrows(AwsException.class, () -> service.describeUser(id, "alice"));
+        assertThrows(AwsException.class, () -> service.deleteUser(id, "alice"));
     }
 
     @Test
-    void createDuplicateUserThrows() {
+    void createBrokerSeedsAdminUser() {
         Broker broker = service.createBroker(rabbitParams("orders"));
-        String id = broker.getBrokerId();
-        service.createUser(id, new MqUser("alice", "p1", false, null));
-        assertThrows(AwsException.class,
-                () -> service.createUser(id, new MqUser("alice", "p2", false, null)));
+        assertEquals(1, broker.getUsers().size());
+        assertEquals("admin", broker.getUsers().get(0).getUsername());
+        assertEquals("AdminPass123", broker.getUsers().get(0).getPassword());
+    }
+
+    @Test
+    void createBrokerRequiresExactlyOneUser() {
+        CreateBrokerParams noUsers = new CreateBrokerParams("orders", "RABBITMQ", null,
+                "SINGLE_INSTANCE", "mq.t3.micro", false, false, null, null);
+        assertThrows(AwsException.class, () -> service.createBroker(noUsers));
+    }
+
+    @Test
+    void createBrokerRejectsWeakPassword() {
+        CreateBrokerParams weak = new CreateBrokerParams("orders", "RABBITMQ", null,
+                "SINGLE_INSTANCE", "mq.t3.micro", false, false,
+                List.of(new MqUser("admin", "short", true, null)), null);
+        assertThrows(AwsException.class, () -> service.createBroker(weak));
     }
 
     @Test

@@ -12,6 +12,7 @@ import io.github.hectorvent.floci.core.common.docker.ContainerSpec;
 import io.github.hectorvent.floci.core.common.docker.ContainerStorageHelper;
 import io.github.hectorvent.floci.services.amazonmq.model.Broker;
 import io.github.hectorvent.floci.services.amazonmq.model.BrokerInstance;
+import io.github.hectorvent.floci.services.amazonmq.model.MqUser;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -77,6 +78,15 @@ public class RabbitMqManager {
                 .withName(containerName)
                 .withDockerNetwork(config.services().dockerNetwork())
                 .withLogRotation();
+
+        // Seed the broker's admin user. RabbitMQ's built-in `guest` user is
+        // loopback-only, so it cannot authenticate over the mapped host port; a user
+        // created via RABBITMQ_DEFAULT_USER/PASS is not loopback-restricted and can.
+        if (!broker.getUsers().isEmpty()) {
+            MqUser admin = broker.getUsers().get(0);
+            specBuilder.withEnv("RABBITMQ_DEFAULT_USER", admin.getUsername());
+            specBuilder.withEnv("RABBITMQ_DEFAULT_PASS", admin.getPassword());
+        }
 
         if (!containerDetector.isRunningInContainer()) {
             specBuilder.withDynamicPort(AMQP_PORT).withDynamicPort(MGMT_PORT);

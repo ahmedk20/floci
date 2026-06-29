@@ -17,8 +17,8 @@ public class MqUser {
     @JsonProperty("username")
     private String username;
 
-    // Stored for projecting into the real RabbitMQ broker (commit 3),
-    // never serialized in a response.
+    // Stored so the broker's admin user can be seeded into the RabbitMQ container
+    // (via RABBITMQ_DEFAULT_USER/PASS); never serialized in a response.
     @JsonIgnore
     private String password;
 

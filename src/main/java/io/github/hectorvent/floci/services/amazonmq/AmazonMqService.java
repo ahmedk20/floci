@@ -83,6 +83,20 @@ public class AmazonMqService {
             throw new AwsException("BadRequestException",
                     "Only SINGLE_INSTANCE DeploymentMode is supported", 400);
         }
+        // RabbitMQ brokers require exactly one user at creation; that user becomes the
+        // broker's RabbitMQ administrator (seeded into the container). This mirrors AWS,
+        // which rejects CreateBroker for RabbitMQ unless exactly one user is supplied.
+        List<MqUser> requestedUsers = params.users() == null ? List.of() : params.users();
+        if (requestedUsers.size() != 1) {
+            throw new AwsException("BadRequestException",
+                    "Exactly one broker user is required for a RabbitMQ broker", 400);
+        }
+        MqUser admin = requestedUsers.get(0);
+        if (admin.getUsername() == null || admin.getUsername().isBlank()) {
+            throw new AwsException("BadRequestException", "Broker user username is required", 400);
+        }
+        validateUserPassword(admin.getPassword());
+
         if (storage.scan(k -> true).stream().anyMatch(b -> name.equals(b.getBrokerName()))) {
             throw new AwsException("ConflictException", "Broker already exists: " + name, 409);
         }
@@ -202,38 +216,51 @@ public class AmazonMqService {
         }
     }
 
-    // --- Users (in-memory; projected into the real broker in commit 3) ---
+    // --- Users ---
+    // Amazon MQ's standalone User API (CreateUser/DescribeUser/ListUsers/UpdateUser/
+    // DeleteUser) applies only to ActiveMQ brokers. For RabbitMQ, AWS rejects these
+    // operations and directs callers to the RabbitMQ web console. Every broker we host
+    // is RabbitMQ, so they always reject. The broker's admin user is seeded once at
+    // CreateBroker time; additional users are managed through the RabbitMQ console.
 
     public MqUser createUser(String brokerId, MqUser user) {
-        Broker broker = describeBroker(brokerId);
-        if (broker.getUsers().stream().anyMatch(u -> u.getUsername().equals(user.getUsername()))) {
-            throw new AwsException("ConflictException",
-                    "User already exists: " + user.getUsername(), 409);
-        }
-        broker.getUsers().add(user);
-        storage.put(brokerId, broker);
-        return user;
+        throw userApiNotSupported();
     }
 
     public MqUser describeUser(String brokerId, String username) {
-        Broker broker = describeBroker(brokerId);
-        return broker.getUsers().stream()
-                .filter(u -> u.getUsername().equals(username))
-                .findFirst()
-                .orElseThrow(() -> new AwsException("NotFoundException",
-                        "User not found: " + username, 404));
+        throw userApiNotSupported();
     }
 
     public List<MqUser> listUsers(String brokerId) {
-        return describeBroker(brokerId).getUsers();
+        throw userApiNotSupported();
     }
 
     public void deleteUser(String brokerId, String username) {
-        Broker broker = describeBroker(brokerId);
-        boolean removed = broker.getUsers().removeIf(u -> u.getUsername().equals(username));
-        if (!removed) {
-            throw new AwsException("NotFoundException", "User not found: " + username, 404);
+        throw userApiNotSupported();
+    }
+
+    private static AwsException userApiNotSupported() {
+        return new AwsException("BadRequestException",
+                "User management API operations do not apply to RabbitMQ brokers. "
+                        + "Manage users through the RabbitMQ web console.", 400);
+    }
+
+    /**
+     * Enforces Amazon MQ's broker-user password rule: at least 12 characters, at
+     * least 4 unique characters, and no commas, colons, or equal signs.
+     */
+    private static void validateUserPassword(String password) {
+        if (password == null || password.length() < 12) {
+            throw new AwsException("BadRequestException",
+                    "Broker user password must be at least 12 characters long", 400);
         }
-        storage.put(brokerId, broker);
+        if (password.chars().distinct().count() < 4) {
+            throw new AwsException("BadRequestException",
+                    "Broker user password must contain at least 4 unique characters", 400);
+        }
+        if (password.contains(",") || password.contains(":") || password.contains("=")) {
+            throw new AwsException("BadRequestException",
+                    "Broker user password must not contain commas, colons, or equal signs", 400);
+        }
     }
 }

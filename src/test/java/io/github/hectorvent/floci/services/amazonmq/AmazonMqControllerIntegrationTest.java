@@ -17,7 +17,8 @@ class AmazonMqControllerIntegrationTest {
             .body("""
                 {"brokerName": "%s", "engineType": "RABBITMQ",
                  "deploymentMode": "SINGLE_INSTANCE", "hostInstanceType": "mq.t3.micro",
-                 "publiclyAccessible": false}
+                 "publiclyAccessible": false,
+                 "users": [{"username": "admin", "password": "AdminPass123", "consoleAccess": true}]}
                 """.formatted(name))
         .when()
             .post("/v1/brokers")
@@ -54,38 +55,41 @@ class AmazonMqControllerIntegrationTest {
     }
 
     @Test
-    void userLifecycle() {
+    void userApiRejectedForRabbitMq() {
+        // The standalone User API applies only to ActiveMQ; AWS rejects it for
+        // RabbitMQ brokers. Users are managed through the RabbitMQ web console.
         String brokerId = createRabbitBroker("it-users");
 
         given()
             .contentType("application/json")
             .body("""
-                {"password": "s3cret-pass", "consoleAccess": false}
+                {"password": "AnotherPass99", "consoleAccess": false}
                 """)
         .when()
             .post("/v1/brokers/{id}/users/alice", brokerId)
         .then()
-            .statusCode(200);
+            .statusCode(400);
 
         given()
         .when()
             .get("/v1/brokers/{id}/users", brokerId)
         .then()
-            .statusCode(200)
-            .body("users.username", hasItem("alice"));
+            .statusCode(400);
+    }
 
+    @Test
+    void rejectsBrokerWithoutUser() {
         given()
+            .contentType("application/json")
+            .body("""
+                {"brokerName": "it-nouser", "engineType": "RABBITMQ",
+                 "deploymentMode": "SINGLE_INSTANCE", "hostInstanceType": "mq.t3.micro",
+                 "publiclyAccessible": false}
+                """)
         .when()
-            .get("/v1/brokers/{id}/users/alice", brokerId)
+            .post("/v1/brokers")
         .then()
-            .statusCode(200)
-            .body("username", equalTo("alice"));
-
-        given()
-        .when()
-            .delete("/v1/brokers/{id}/users/alice", brokerId)
-        .then()
-            .statusCode(200);
+            .statusCode(400);
     }
 
     @Test
