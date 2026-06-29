@@ -1,6 +1,7 @@
 package io.github.hectorvent.floci.services.amazonmq.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.quarkus.runtime.annotations.RegisterForReflection;
 
@@ -12,6 +13,7 @@ import java.util.List;
  * projection into the real broker but is never serialized back to the client.
  */
 @RegisterForReflection
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class MqUser {
 
     @JsonProperty("username")

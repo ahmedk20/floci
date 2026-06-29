@@ -60,12 +60,10 @@ public class AmazonMqService {
 
     @PreDestroy
     public void shutdown() {
+        // Container teardown is wired into EmulatorLifecycle.onStop() via
+        // RabbitMqManager.stopAll() (ordered with the other container managers);
+        // here we only stop the readiness poller.
         poller.shutdown();
-        if (!config.services().amazonmq().mock()) {
-            for (Broker broker : allBrokers()) {
-                rabbitMqManager.stopContainer(broker);
-            }
-        }
     }
 
     public Broker createBroker(CreateBrokerParams params) {
@@ -133,8 +131,11 @@ public class AmazonMqService {
             } catch (RuntimeException e) {
                 broker.setBrokerState(BrokerState.CREATION_FAILED);
                 storage.put(brokerId, broker);
+                // Keep the cause in the logs; don't leak internal details (or a null
+                // message) into the AWS error envelope returned to the client.
+                LOG.errorv(e, "Failed to provision broker {0} ({1})", name, brokerId);
                 throw new AwsException("InternalServerErrorException",
-                        "Failed to provision broker " + name + ": " + e.getMessage(), 500);
+                        "Failed to provision broker " + name, 500);
             }
         }
 

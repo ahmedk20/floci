@@ -21,6 +21,7 @@ import java.io.Closeable;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -49,6 +50,7 @@ public class RabbitMqManager {
     private final EmulatorConfig config;
     private final RegionResolver regionResolver;
     private final Map<String, Closeable> logStreams = new ConcurrentHashMap<>();
+    private final Map<String, String> containerIds = new ConcurrentHashMap<>();
 
     @Inject
     public RabbitMqManager(ContainerBuilder containerBuilder,
@@ -117,6 +119,7 @@ public class RabbitMqManager {
             throw e;
         }
         broker.setContainerId(info.containerId());
+        containerIds.put(broker.getBrokerId(), info.containerId());
 
         EndpointInfo amqp = info.getEndpoint(AMQP_PORT);
         EndpointInfo mgmt = info.getEndpoint(MGMT_PORT);
@@ -169,9 +172,29 @@ public class RabbitMqManager {
         if (broker.getContainerId() == null) {
             return;
         }
+        containerIds.remove(broker.getBrokerId());
         Closeable logHandle = logStreams.remove(broker.getBrokerId());
         lifecycleManager.stopAndRemove(broker.getContainerId(), logHandle);
         LOG.infov("RabbitMQ container {0} stopped and removed", broker.getContainerId());
+    }
+
+    /**
+     * Stops and removes every running broker container. Wired into
+     * {@code EmulatorLifecycle.onStop()} so containers are torn down on shutdown
+     * alongside the other container managers.
+     */
+    public void stopAll() {
+        if (!containerIds.isEmpty()) {
+            LOG.infov("Stopping {0} RabbitMQ container(s) on shutdown", containerIds.size());
+        }
+        for (String brokerId : new ArrayList<>(containerIds.keySet())) {
+            String containerId = containerIds.remove(brokerId);
+            if (containerId == null) {
+                continue;
+            }
+            Closeable logHandle = logStreams.remove(brokerId);
+            lifecycleManager.stopAndRemove(containerId, logHandle);
+        }
     }
 
     public void removeBrokerStorage(Broker broker) {

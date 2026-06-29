@@ -1,5 +1,6 @@
 package io.github.hectorvent.floci.services.amazonmq.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.quarkus.runtime.annotations.RegisterForReflection;
 
@@ -11,6 +12,7 @@ import java.util.List;
  * to connect (AMQP) and {@code ConsoleURL} to open the management UI.
  */
 @RegisterForReflection
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class BrokerInstance {
 
     @JsonProperty("consoleURL")

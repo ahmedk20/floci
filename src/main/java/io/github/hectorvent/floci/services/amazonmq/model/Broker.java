@@ -1,6 +1,7 @@
 package io.github.hectorvent.floci.services.amazonmq.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.quarkus.runtime.annotations.RegisterForReflection;
 
@@ -18,6 +19,7 @@ import java.util.Map;
  * (e.g. {@code brokerName}, {@code brokerInstances}).
  */
 @RegisterForReflection
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class Broker {
 
     @JsonProperty("brokerId")
