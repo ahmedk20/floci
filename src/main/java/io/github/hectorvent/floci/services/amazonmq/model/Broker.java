@@ -1,6 +1,5 @@
 package io.github.hectorvent.floci.services.amazonmq.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.quarkus.runtime.annotations.RegisterForReflection;
@@ -64,20 +63,18 @@ public class Broker {
     @JsonProperty("tags")
     private Map<String, String> tags;
 
-    // Internal bookkeeping, not part of the AWS response shape (this model is also
-    // serialized straight to DescribeBroker, so these must not leak to clients).
-    // containerId is in-memory only and is repopulated on create; after an emulator
-    // restart it is null, so teardown falls back to the deterministic container name
-    // floci-amazonmq-{brokerId} (see RabbitMqManager#stopContainer).
-    @JsonIgnore
+    // Internal bookkeeping. These are NOT part of the AWS response shape, but they ARE
+    // persisted so the broker stays manageable after an emulator restart in persistent
+    // mode (container teardown, volume cleanup, account-aware storage routing). The
+    // controller builds the DescribeBroker response explicitly, so these are never
+    // exposed to clients despite being written to storage.
     private String containerId;
 
-    @JsonIgnore
     private String accountId;
 
-    // 6-char hex generated once at creation for stable, collision-free
-    // volume/container naming (same convention as MskCluster.volumeId).
-    @JsonIgnore
+    // 6-char hex generated once at creation for stable, collision-free volume/container
+    // naming (same convention as MskCluster.volumeId, which is likewise persisted so
+    // removeBrokerStorage can locate the named volume after a restart).
     private String volumeId;
 
     public Broker() {}

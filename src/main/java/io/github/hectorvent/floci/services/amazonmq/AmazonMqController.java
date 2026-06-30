@@ -69,7 +69,30 @@ public class AmazonMqController {
     @GET
     @Path("/v1/brokers/{broker-id}")
     public Response describeBroker(@PathParam("broker-id") String brokerId) {
-        return Response.ok(service.describeBroker(brokerId)).build();
+        return Response.ok(brokerResponse(service.describeBroker(brokerId))).build();
+    }
+
+    // Builds the DescribeBroker response explicitly. The Broker model persists
+    // internal bookkeeping (containerId, accountId, volumeId) so the broker can be
+    // managed after a restart, but those fields are not part of the AWS shape — hand-
+    // building the response keeps them out of the client-facing payload.
+    private static Map<String, Object> brokerResponse(Broker b) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("brokerId", b.getBrokerId());
+        body.put("brokerArn", b.getBrokerArn());
+        body.put("brokerName", b.getBrokerName());
+        body.put("brokerState", b.getBrokerState());
+        body.put("engineType", b.getEngineType());
+        body.put("engineVersion", b.getEngineVersion());
+        body.put("deploymentMode", b.getDeploymentMode());
+        body.put("hostInstanceType", b.getHostInstanceType());
+        body.put("publiclyAccessible", b.isPubliclyAccessible());
+        body.put("autoMinorVersionUpgrade", b.isAutoMinorVersionUpgrade());
+        body.put("created", b.getCreated());
+        body.put("brokerInstances", b.getBrokerInstances());
+        body.put("users", b.getUsers());
+        body.put("tags", b.getTags());
+        return body;
     }
 
     @DELETE

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 
 @QuarkusTest
@@ -39,7 +40,11 @@ class AmazonMqControllerIntegrationTest {
             .body("brokerName", equalTo("it-describe"))
             .body("engineType", equalTo("RABBITMQ"))
             .body("brokerState", equalTo("RUNNING"))
-            .body("brokerInstances[0].endpoints[0]", startsWith("amqp://"));
+            .body("brokerInstances[0].endpoints[0]", startsWith("amqp://"))
+            // internal bookkeeping is persisted but must never leak into the API
+            .body("containerId", nullValue())
+            .body("accountId", nullValue())
+            .body("volumeId", nullValue());
     }
 
     @Test
