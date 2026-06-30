@@ -97,7 +97,9 @@ public class ElastiCacheService {
 
     private void rollbackReplicationGroup(String groupId, ElastiCacheContainerHandle handle, int proxyPort) {
         try {
-            proxyManager.stopProxy(groupId);
+            if (handle != null) {
+                proxyManager.stopProxy(groupId);
+            }
         } catch (RuntimeException e) {
             LOG.warnv("Error stopping proxy for replication group {0}: {1}", groupId, e.getMessage());
         }
