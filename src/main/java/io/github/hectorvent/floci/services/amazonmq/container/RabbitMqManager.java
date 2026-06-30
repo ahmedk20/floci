@@ -157,14 +157,25 @@ public class RabbitMqManager {
         if (consoleUrl == null) {
             return false;
         }
+        HttpURLConnection conn = null;
         try {
-            HttpURLConnection conn = (HttpURLConnection) URI.create(consoleUrl).toURL().openConnection();
+            conn = (HttpURLConnection) URI.create(consoleUrl).toURL().openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(1000);
             conn.setReadTimeout(1000);
             return conn.getResponseCode() == 200;
         } catch (Exception e) {
+            // Expected while the broker is still booting (connection refused/timeout).
+            // Logged at debug so a genuinely stuck probe is diagnosable without
+            // spamming this 2s-interval hot path (AGENTS.md: no empty catch).
+            LOG.debugf("Readiness probe for broker %s at %s not ready: %s",
+                    broker.getBrokerId(), consoleUrl, e.toString());
             return false;
+        } finally {
+            // Release the socket; isReady() is polled every 2s per pending broker.
+            if (conn != null) {
+                conn.disconnect();
+            }
         }
     }
 
