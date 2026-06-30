@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -126,6 +127,29 @@ class ElastiCacheServiceTest {
         // instead of skipping to the next one (which is what a leak would cause).
         doNothing().when(proxyManager)
                 .startProxy(anyString(), any(), anyInt(), anyString(), anyInt(), any());
+        ReplicationGroup recovered =
+                service.createReplicationGroup("grp2", "test", AuthMode.PASSWORD, null);
+        assertEquals(16379, recovered.getProxyPort(),
+                "Port from the failed create must be released so the next group reuses it");
+    }
+
+    @Test
+    void failedContainerStartReleasesPortWithoutTouchingProxyOrContainer() {
+        // Container start blows up before any handle exists.
+        doThrow(new RuntimeException("container boom"))
+                .when(containerManager).start(eq("grp"), anyString());
+
+        // The original failure must propagate to the caller (we clean up, then rethrow).
+        assertThrows(RuntimeException.class,
+                () -> service.createReplicationGroup("grp", "test", AuthMode.PASSWORD, null));
+
+        // No container started and no proxy started, so rollback must not call either stop.
+        verify(proxyManager, never()).stopProxy(anyString());
+        verify(containerManager, never()).stop(any());
+
+        // The reserved proxy port was still released: a subsequent successful create reuses the base port.
+        when(containerManager.start(anyString(), anyString()))
+                .thenReturn(new ElastiCacheContainerHandle("cid", "grp2", "localhost", 6379));
         ReplicationGroup recovered =
                 service.createReplicationGroup("grp2", "test", AuthMode.PASSWORD, null);
         assertEquals(16379, recovered.getProxyPort(),
