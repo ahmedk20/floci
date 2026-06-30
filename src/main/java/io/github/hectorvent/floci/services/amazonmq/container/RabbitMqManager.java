@@ -91,6 +91,15 @@ public class RabbitMqManager {
         // created via RABBITMQ_DEFAULT_USER/PASS is not loopback-restricted and can.
         if (!broker.getUsers().isEmpty()) {
             MqUser admin = broker.getUsers().get(0);
+            if (admin.getPassword() == null) {
+                // The password is in-memory only (a secret we do not persist). It is
+                // present when CreateBroker provisions the container but null for a
+                // broker reloaded from persistent storage. Fail loudly rather than
+                // create a container seeded with a null credential.
+                throw new IllegalStateException("Admin password unavailable for broker "
+                        + broker.getBrokerId() + " (secrets are not persisted); cannot "
+                        + "provision the RabbitMQ container");
+            }
             specBuilder.withEnv("RABBITMQ_DEFAULT_USER", admin.getUsername());
             specBuilder.withEnv("RABBITMQ_DEFAULT_PASS", admin.getPassword());
         }

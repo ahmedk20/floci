@@ -19,8 +19,13 @@ public class MqUser {
     @JsonProperty("username")
     private String username;
 
-    // Stored so the broker's admin user can be seeded into the RabbitMQ container
-    // (via RABBITMQ_DEFAULT_USER/PASS); never serialized in a response.
+    // The admin password is a secret used only to seed the RabbitMQ container at
+    // create time (RABBITMQ_DEFAULT_USER/PASS). It is deliberately kept in memory
+    // only and never serialized — to the API or to StorageBackend — so it is not
+    // written in cleartext to amazonmq-brokers.json (per the project rule against
+    // persisting secrets). A broker reloaded from persistent storage therefore has a
+    // null password; RabbitMqManager#startContainer fails loudly rather than seed a
+    // null credential.
     @JsonIgnore
     private String password;
 
