@@ -138,7 +138,39 @@ class AmazonMqServiceTest {
 
     @Test
     void createBrokerMarksFailedWhenProvisioningThrows() {
-        // Real (non-mock) mode with a container manager that fails to start.
+        AmazonMqService realModeService = realModeServiceWithFailingManager();
+
+        assertThrows(AwsException.class,
+                () -> realModeService.createBroker(rabbitParams("orders")));
+
+        // The failed broker is persisted as CREATION_FAILED, not left dangling.
+        List<Broker> brokers = realModeService.listBrokers();
+        assertEquals(1, brokers.size());
+        assertEquals(BrokerState.CREATION_FAILED, brokers.get(0).getBrokerState());
+    }
+
+    @Test
+    void rebootRunningBrokerStaysRunning() {
+        Broker broker = service.createBroker(rabbitParams("orders"));
+        Broker rebooted = service.rebootBroker(broker.getBrokerId());
+        assertEquals(BrokerState.RUNNING, rebooted.getBrokerState());
+    }
+
+    @Test
+    void rebootRejectsNonRunningBroker() {
+        // A failed-provisioning broker is CREATION_FAILED; AWS allows RebootBroker
+        // only on a RUNNING broker, so rebooting it must throw rather than promote
+        // it (with no backing container) to RUNNING.
+        AmazonMqService realModeService = realModeServiceWithFailingManager();
+        assertThrows(AwsException.class,
+                () -> realModeService.createBroker(rabbitParams("orders")));
+        Broker failed = realModeService.listBrokers().get(0);
+        assertEquals(BrokerState.CREATION_FAILED, failed.getBrokerState());
+
+        assertThrows(AwsException.class, () -> realModeService.rebootBroker(failed.getBrokerId()));
+    }
+
+    private AmazonMqService realModeServiceWithFailingManager() {
         StorageFactory storageFactory = Mockito.mock(StorageFactory.class);
         when(storageFactory.create(Mockito.anyString(), Mockito.anyString(), Mockito.any()))
                 .thenReturn(new InMemoryStorage<>());
@@ -155,15 +187,6 @@ class AmazonMqServiceTest {
         RabbitMqManager failingManager = Mockito.mock(RabbitMqManager.class);
         Mockito.doThrow(new RuntimeException("docker unavailable"))
                 .when(failingManager).startContainer(Mockito.any());
-        AmazonMqService realModeService =
-                new AmazonMqService(storageFactory, config, regionResolver, failingManager);
-
-        assertThrows(AwsException.class,
-                () -> realModeService.createBroker(rabbitParams("orders")));
-
-        // The failed broker is persisted as CREATION_FAILED, not left dangling.
-        List<Broker> brokers = realModeService.listBrokers();
-        assertEquals(1, brokers.size());
-        assertEquals(BrokerState.CREATION_FAILED, brokers.get(0).getBrokerState());
+        return new AmazonMqService(storageFactory, config, regionResolver, failingManager);
     }
 }

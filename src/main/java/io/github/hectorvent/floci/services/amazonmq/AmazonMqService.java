@@ -167,10 +167,17 @@ public class AmazonMqService {
 
     public Broker rebootBroker(String brokerId) {
         Broker broker = describeBroker(brokerId);
-        // Synchronous in mock mode: a real reboot would cycle the container and
-        // flip back to RUNNING via the readiness poller.
-        broker.setBrokerState(BrokerState.RUNNING);
-        storage.put(brokerId, broker);
+        // AWS allows RebootBroker only on a broker in the RUNNING state. Without
+        // this guard a non-RUNNING broker (e.g. CREATION_FAILED, which has no
+        // backing container) would be silently promoted to RUNNING and never
+        // reconciled by the readiness poller.
+        if (broker.getBrokerState() != BrokerState.RUNNING) {
+            throw new AwsException("BadRequestException",
+                    "Broker " + brokerId + " cannot be rebooted while in state "
+                            + broker.getBrokerState() + "; it must be RUNNING", 400);
+        }
+        // RebootBroker is asynchronous and returns the broker to RUNNING. This tier
+        // does not cycle the container, so the broker simply stays RUNNING.
         return broker;
     }
 
