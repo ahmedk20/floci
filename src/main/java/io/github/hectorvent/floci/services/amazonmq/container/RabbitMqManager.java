@@ -67,9 +67,14 @@ public class RabbitMqManager {
         this.regionResolver = regionResolver;
     }
 
+    /** Deterministic container name for a broker, stable across emulator restarts. */
+    private static String containerName(String brokerId) {
+        return "floci-amazonmq-" + brokerId;
+    }
+
     public void startContainer(Broker broker) {
         String image = config.services().amazonmq().defaultImage();
-        String containerName = "floci-amazonmq-" + broker.getBrokerId();
+        String containerName = containerName(broker.getBrokerId());
         LOG.infov("Starting RabbitMQ container for broker {0} using image {1}",
                 broker.getBrokerName(), image);
 
@@ -180,13 +185,19 @@ public class RabbitMqManager {
     }
 
     public void stopContainer(Broker broker) {
-        if (broker.getContainerId() == null) {
-            return;
-        }
         containerIds.remove(broker.getBrokerId());
         Closeable logHandle = logStreams.remove(broker.getBrokerId());
-        lifecycleManager.stopAndRemove(broker.getContainerId(), logHandle);
-        LOG.infov("RabbitMQ container {0} stopped and removed", broker.getContainerId());
+        String containerId = broker.getContainerId();
+        if (containerId != null) {
+            lifecycleManager.stopAndRemove(containerId, logHandle);
+            LOG.infov("RabbitMQ container {0} stopped and removed", containerId);
+        } else {
+            // containerId is in-memory bookkeeping and is null after an emulator
+            // restart (it is intentionally not persisted; see Broker). Fall back to
+            // the deterministic container name so an explicit DeleteBroker still
+            // removes a container left running from a previous run.
+            lifecycleManager.removeIfExists(containerName(broker.getBrokerId()));
+        }
     }
 
     /**

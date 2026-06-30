@@ -64,7 +64,11 @@ public class Broker {
     @JsonProperty("tags")
     private Map<String, String> tags;
 
-    // Internal bookkeeping, not part of the AWS response shape.
+    // Internal bookkeeping, not part of the AWS response shape (this model is also
+    // serialized straight to DescribeBroker, so these must not leak to clients).
+    // containerId is in-memory only and is repopulated on create; after an emulator
+    // restart it is null, so teardown falls back to the deterministic container name
+    // floci-amazonmq-{brokerId} (see RabbitMqManager#stopContainer).
     @JsonIgnore
     private String containerId;
 
